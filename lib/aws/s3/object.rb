@@ -168,14 +168,24 @@ module AWS
           
           # We need to ensure the key doesn't have extended characters but not uri escape it before doing the lookup and comparing since if the object exists, 
           # the key on S3 will have been normalized
-          key    = key.remove_extended unless key.valid_utf8?
-          bucket = Bucket.find(bucket_name(bucket), :marker => key.previous, :max_keys => 1)
-          # If our heuristic failed, trigger a NoSuchKey exception
-          if (object = bucket.objects.first) && object.key == key
-            object 
-          else 
-            raise NoSuchKey.new("No such key `#{key}'", bucket)
+          key = key.remove_extended unless key.valid_utf8?
+          bkt_name = bucket_name bucket
+          partial_bucket = Bucket.find(bkt_name)
+
+          while not partial_bucket.nil?
+            last_key = nil
+            partial_bucket.each do |s3object|
+              last_key = s3object.key
+              return s3object if last_key == key.to_s
+            end
+            if partial_bucket.is_truncated
+              partial_bucket = Bucket.find(bkt_name, :marker => last_key)
+            else
+              partial_bucket = nil
+            end
           end
+
+          raise NoSuchKey.new("No such key `#{key}'", bucket)
         end
         
         # Makes a copy of the object with <tt>key</tt> to <tt>copy_key</tt>, preserving the ACL of the existing object if the <tt>:copy_acl</tt> option is true (default false).
